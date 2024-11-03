@@ -1,7 +1,7 @@
 # 💬 KindroidAI - Golang Client by Project Harmony.AI
 ![Tag](https://img.shields.io/github/license/harmony-ai-solutions/CharacterAI-Golang)
 
-An unofficial API Client for CharacterAI, written in Golang.
+An unofficial API Client for KindroidAI, written in Golang.
 
 Based on KindroidAI's public API reference: [KindroidAI API](https://docs.kindroid.ai/api-documentation)
 
@@ -144,6 +144,6 @@ Feel free to join our Discord Server and / or subscribe to our Patreon - Even $1
 Contact us directly via: [contact@project-harmony.ai](mailto:contact@project-harmony.ai)
 
 ---
-&copy; 2023 Harmony AI Solutions & Contributors
+&copy; 2024 Harmony AI Solutions & Contributors
 
 Licensed under the Apache 2.0 License
