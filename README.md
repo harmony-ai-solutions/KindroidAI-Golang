@@ -14,16 +14,13 @@ Any support with testing, verifying functionality and adding proper golang struc
 You have questions, need help, or just want to show your support? Reach us here: [Discord Server & Patreon page](#how-to-reach-out-to-us).
 
 ### TODO's:
-- [x] Port over API from source repo
+- [x] Implement API accodring to public documentation
     - [x] Confirm basic functionality
-    - [ ] Write tests for all API Methods
-- [ ] Golang QOL improvements
-    - [ ] Create Wrapper Structs for API Endpoints + Parse them within the API methods
-    - [ ] Add proper WebSocket client for V2 / Websocket API
+    - [x] Write tests for all API Methods
 
 ## 💻 Installation
 ```bash
-go get github.com/harmony-ai-solutions/CharacterAI-Golang
+go get github.com/harmony-ai-solutions/KindroidAI-Golang
 ```
 
 ## 📚 Documentation
