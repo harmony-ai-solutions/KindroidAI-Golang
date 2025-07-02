@@ -16,6 +16,8 @@ limitations under the License.
 */
 package client
 
+import "time"
+
 // SubscriptionInfo represents the response structure for user subscription details.
 type SubscriptionInfo struct {
 	UID                        string  `json:"uid"`
@@ -49,4 +51,18 @@ type SendMessageOptions struct {
 type AudioInferenceRequest struct {
 	AIID      string `json:"ai_id"`
 	MessageID string `json:"messageID"`
+}
+
+// ChatMessage represents a single message in the chat history.
+type ChatMessage struct {
+	ID        string `firestore:"-"` // Firestore document ID, not a field in the document itself
+	Message   string `firestore:"message"`
+	Sender    string `firestore:"sender"`
+	Timestamp int64  `firestore:"timestamp"` // Firestore stores this as a Unix timestamp (integer)
+}
+
+// GetTime returns the timestamp as a time.Time object.
+func (cm *ChatMessage) GetTime() time.Time {
+	// Assuming the timestamp is in milliseconds, which is common.
+	return time.Unix(0, cm.Timestamp*int64(time.Millisecond))
 }

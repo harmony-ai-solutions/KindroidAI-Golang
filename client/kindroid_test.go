@@ -153,6 +153,29 @@ func (suite *KindroidAITestSuite) TestAudioInference() {
 	suite.NoError(err, "AudioInference returned an error")
 }
 
+func (suite *KindroidAITestSuite) TestExtractUserIDFromJWT() {
+	// A dummy JWT with a "user_id" claim for testing purposes.
+	// Header: {"alg":"HS256","typ":"JWT"}
+	// Payload: {"user_id":"dummy_user_123","name":"Test User"}
+	// Signature is not validated by ParseUnverified
+	dummyJWT := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiZHVtbXlfdXNlcl8xMjMiLCJuYW1lIjoiVGVzdCBVc2VyIn0.signature_placeholder"
+
+	// Create a temporary client with the dummy JWT
+	tempClient := NewKindroidAI(dummyJWT, "any_ai_id")
+
+	suite.Equal("dummy_user_123", tempClient.UserID, "UserID should be extracted correctly from JWT")
+
+	// Test with a malformed JWT
+	malformedJWT := "not.a.jwt"
+	tempClientMalformed := NewKindroidAI(malformedJWT, "any_ai_id")
+	suite.Empty(tempClientMalformed.UserID, "UserID should be empty for malformed JWT")
+
+	// Test with JWT missing user_id claim
+	jwtMissingClaim := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lIjoiVGVzdCBVc2VyIn0.signature_placeholder"
+	tempClientMissingClaim := NewKindroidAI(jwtMissingClaim, "any_ai_id")
+	suite.Empty(tempClientMissingClaim.UserID, "UserID should be empty for JWT missing user_id claim")
+}
+
 func TestKindroidAITestSuite(t *testing.T) {
 	suite.Run(t, new(KindroidAITestSuite))
 }

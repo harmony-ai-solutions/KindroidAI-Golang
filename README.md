@@ -31,9 +31,18 @@ The following API methods and features have been discovered through network anal
 
 - **`CheckUserSubscription()`**: Retrieves detailed user subscription information.
 - **`AudioInference(messageID string)`**: Sends a request related to audio processing for a given message.
+- **`GetChatHistory(ctx context.Context, aiID string, limit int) ([]ChatMessage, error)`**: Retrieves the chat history for a given AI. This method communicates with Google's Firestore like the Kindroid Client does and decrypts the messages.
 - **Enhanced `SendMessage` options**: The `SendMessageAdvanced` method and its `SendMessageOptions` struct expose additional parameters (e.g., `ImageURLs`, `VideoURL`, `Stream`) that are not explicitly documented in the public API reference.
 
-## 📙 Example
+## 📙 Examples
+
+### Authentication
+The client can be authenticated in two ways:
+
+1.  **Using a JWT (Bearer Token)**: You can provide the short-lived bearer token obtained from the web application's network traffic as the `KINDROID_API_KEY`. The client will automatically parse the token to extract your `UserID`, which is required for fetching chat history.
+2.  **Using a Static API Key**: If you are using a permanent API key from your Kindroid account settings, you must also provide your `UserID` separately via the `KINDROID_USER_ID` environment variable. This is necessary because the static key does not contain the user ID.
+
+### Basic Chat App
 Example code for a simple, functional Chat app. The code can also be found in [example.go](example.go)
 ```Golang
 package main
@@ -47,8 +56,6 @@ import (
 
 func main() {
   // Initial params - Usage of env vars recommended
-  //apiKey := ""
-  //kindroidId := ""
   apiKey := os.Getenv("KINDROID_API_KEY")
   kindroidId := os.Getenv("KINDROID_AI_ID")
 
@@ -106,6 +113,53 @@ func main() {
     // Display the AI's response
     fmt.Printf("AI: %s\n", response)
   }
+}
+```
+
+### Fetching Chat History
+Example code for fetching and decrypting chat history. The code can also be found in [examples/example_chat_history.go](examples/example_chat_history.go)
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+
+	"github.com/harmony-ai-solutions/KindroidAI-Golang/client"
+)
+
+func main() {
+	apiKey := os.Getenv("KINDROID_API_KEY")
+	aiID := os.Getenv("KINDROID_AI_ID")
+
+	if apiKey == "" {
+		log.Fatal("KINDROID_API_KEY environment variable not set")
+	}
+	if aiID == "" {
+		log.Fatal("KINDROID_AI_ID environment variable not set")
+	}
+
+	kindroidClient := client.NewKindroidAI(apiKey, aiID)
+
+	// Ensure UserID is extracted (it's done in NewKindroidAI)
+	// Ensure UserID is available for chat history features
+	if kindroidClient.UserID == "" {
+		log.Fatal("UserID not found. If using a static API key, ensure KINDROID_USER_ID is set. Otherwise, provide a valid JWT.")
+	}
+	fmt.Printf("Authenticated as UserID: %s\n", kindroidClient.UserID)
+
+	ctx := context.Background()
+	messages, err := kindroidClient.GetChatHistory(ctx, aiID, 10) // Get last 10 messages
+	if err != nil {
+		log.Fatalf("Failed to get chat history: %v", err)
+	}
+
+	fmt.Println("Chat History:")
+	for _, msg := range messages {
+		fmt.Printf("[%s] %s: %s\n", msg.GetTime().Format("2006-01-02 15:04:05"), msg.Sender, msg.Message)
+	}
 }
 ```
 
