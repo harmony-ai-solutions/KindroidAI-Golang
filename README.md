@@ -24,7 +24,14 @@ go get github.com/harmony-ai-solutions/KindroidAI-Golang
 ```
 
 ## 📚 Documentation
-Detailed documentation and Apidocs coming soon
+Detailed documentation and Apidocs coming soon.
+
+### Experimental Features (Use at Your Own Risk)
+The following API methods and features have been discovered through network analysis (HAR logs) and are not part of the official KindroidAI API documentation. They may change or be removed without notice. Use them at your own risk in production environments.
+
+- **`CheckUserSubscription()`**: Retrieves detailed user subscription information.
+- **`AudioInference(messageID string)`**: Sends a request related to audio processing for a given message.
+- **Enhanced `SendMessage` options**: The `SendMessageAdvanced` method and its `SendMessageOptions` struct expose additional parameters (e.g., `ImageURLs`, `VideoURL`, `Stream`) that are not explicitly documented in the public API reference.
 
 ## 📙 Example
 Example code for a simple, functional Chat app. The code can also be found in [example.go](example.go)

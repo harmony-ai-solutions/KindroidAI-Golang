@@ -26,3 +26,10 @@ go.work.sum
 
 # JetBrains Settings
 .idea/
+
+# API logs
+*.har
+
+# Cline
+.clinerules/
+memory_bank/

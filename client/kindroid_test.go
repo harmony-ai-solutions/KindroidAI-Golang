@@ -44,14 +44,25 @@ func (suite *KindroidAITestSuite) SetupTest() {
 			authHeader := r.Header.Get("Authorization")
 			suite.Equal("Bearer test_api_key", authHeader, "Invalid Authorization header")
 
-			// Validate request body
+			// Validate request body for SendMessage and SendMessageAdvanced
 			bodyBytes, _ := io.ReadAll(r.Body)
-			expectedBody := `{"ai_id":"test_ai_id","message":"Hello"}`
-			suite.JSONEq(expectedBody, string(bodyBytes), "Invalid request body")
 
-			// Mock response
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`"Hello, user!"`))
+			// For SendMessage (basic)
+			if string(bodyBytes) == `{"ai_id":"test_ai_id","message":"Hello","stream":false}` {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`"Hello, user!"`))
+				return
+			}
+
+			// For SendMessageAdvanced (with multimedia options)
+			expectedAdvancedBody := `{"ai_id":"test_ai_id","message":"Hello advanced","stream":true,"image_urls":["http://example.com/img.jpg"],"image_description":"a test image"}`
+			if suite.JSONEq(expectedAdvancedBody, string(bodyBytes), "Invalid advanced request body") {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`"Hello, advanced user!"`))
+				return
+			}
+
+			w.WriteHeader(http.StatusBadRequest) // Fallback for unexpected body
 
 		case "/chat-break":
 			// Validate request method
@@ -68,6 +79,27 @@ func (suite *KindroidAITestSuite) SetupTest() {
 
 			// Mock response
 			w.WriteHeader(http.StatusOK)
+
+		case "/check-user-subscription":
+			suite.Equal(http.MethodPost, r.Method, "Expected method POST")
+			authHeader := r.Header.Get("Authorization")
+			suite.Equal("Bearer test_api_key", authHeader, "Invalid Authorization header")
+			bodyBytes, _ := io.ReadAll(r.Body)
+			suite.JSONEq("{}", string(bodyBytes), "Expected empty JSON body")
+
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"uid":"test_uid","status":"OK","isSubscribedBase":true,"subscriptionPlatformBase":"web","gracePeriodBase":null,"isSubscribedAddon1":false,"subscriptionPlatformAddon1":null,"gracePeriodAddon1":null,"isSubscribedAddon2":false,"subscriptionPlatformAddon2":null,"gracePeriodAddon2":null}`))
+
+		case "/audio-inference":
+			suite.Equal(http.MethodPost, r.Method, "Expected method POST")
+			authHeader := r.Header.Get("Authorization")
+			suite.Equal("Bearer test_api_key", authHeader, "Invalid Authorization header")
+			bodyBytes, _ := io.ReadAll(r.Body)
+			expectedBody := `{"ai_id":"test_ai_id","messageID":"test_message_id"}`
+			suite.JSONEq(expectedBody, string(bodyBytes), "Invalid request body")
+
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`"OK"`)) // As per HAR, simple "OK" response
 
 		default:
 			w.WriteHeader(http.StatusNotFound)
@@ -88,9 +120,37 @@ func (suite *KindroidAITestSuite) TestSendMessage() {
 	suite.Equal(`"Hello, user!"`, response, "Unexpected response")
 }
 
+func (suite *KindroidAITestSuite) TestSendMessageAdvanced() {
+	options := SendMessageOptions{
+		AIID:             suite.Client.KindroidID,
+		Message:          "Hello advanced",
+		Stream:           true,
+		ImageURLs:        []string{"http://example.com/img.jpg"},
+		ImageDescription: func(s string) *string { return &s }("a test image"),
+	}
+	response, err := suite.Client.SendMessageAdvanced(options)
+	suite.NoError(err, "SendMessageAdvanced returned an error")
+	suite.Equal(`"Hello, advanced user!"`, response, "Unexpected advanced response")
+}
+
 func (suite *KindroidAITestSuite) TestChatBreak() {
 	err := suite.Client.ChatBreak("Hello again")
 	suite.NoError(err, "ChatBreak returned an error")
+}
+
+func (suite *KindroidAITestSuite) TestCheckUserSubscription() {
+	subInfo, err := suite.Client.CheckUserSubscription()
+	suite.NoError(err, "CheckUserSubscription returned an error")
+	suite.NotNil(subInfo, "SubscriptionInfo should not be nil")
+	suite.Equal("test_uid", subInfo.UID)
+	suite.Equal("OK", subInfo.Status)
+	suite.True(subInfo.IsSubscribedBase)
+	suite.Equal("web", subInfo.SubscriptionPlatformBase)
+}
+
+func (suite *KindroidAITestSuite) TestAudioInference() {
+	err := suite.Client.AudioInference("test_message_id")
+	suite.NoError(err, "AudioInference returned an error")
 }
 
 func TestKindroidAITestSuite(t *testing.T) {

@@ -43,13 +43,21 @@ func NewKindroidAI(apiKey, kindroidID string) *KindroidAI {
 }
 
 // SendMessage sends a message to the AI and returns the response.
+// This is the basic version for backwards compatibility.
 func (k *KindroidAI) SendMessage(message string) (string, error) {
-	url := fmt.Sprintf("%s/send-message", k.BaseURL)
-	requestBody := map[string]string{
-		"ai_id":   k.KindroidID,
-		"message": message,
+	options := SendMessageOptions{
+		AIID:    k.KindroidID,
+		Message: message,
+		Stream:  false, // Default to false for basic SendMessage
 	}
-	jsonData, err := json.Marshal(requestBody)
+	return k.SendMessageAdvanced(options)
+}
+
+// SendMessageAdvanced sends a message to the AI with advanced options and returns the response.
+// This method supports multimedia, streaming, and other advanced features.
+func (k *KindroidAI) SendMessageAdvanced(options SendMessageOptions) (string, error) {
+	url := fmt.Sprintf("%s/send-message", k.BaseURL)
+	jsonData, err := json.Marshal(options)
 	if err != nil {
 		return "", err
 	}
@@ -108,5 +116,83 @@ func (k *KindroidAI) ChatBreak(greeting string) error {
 		return fmt.Errorf("HTTP error: %s", resp.Status)
 	}
 
+	return nil
+}
+
+// CheckUserSubscription retrieves user subscription information.
+//
+// WARNING: This method uses an undocumented API endpoint discovered through
+// network analysis. It may change or be removed without notice.
+// Use at your own risk in production environments.
+func (k *KindroidAI) CheckUserSubscription() (*SubscriptionInfo, error) {
+	url := fmt.Sprintf("%s/check-user-subscription", k.BaseURL)
+	// The HAR file shows an empty JSON object as the request body.
+	jsonData := []byte("{}")
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+k.APIKey)
+
+	resp, err := k.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP error: %s", resp.Status)
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var subInfo SubscriptionInfo
+	err = json.Unmarshal(bodyBytes, &subInfo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal subscription info: %w", err)
+	}
+
+	return &subInfo, nil
+}
+
+// AudioInference sends an audio inference request to the AI.
+//
+// WARNING: This method uses an undocumented API endpoint discovered through
+// network analysis. It may change or be removed without notice.
+// Use at your own risk in production environments.
+func (k *KindroidAI) AudioInference(messageID string) error {
+	url := fmt.Sprintf("%s/audio-inference", k.BaseURL)
+	requestBody := AudioInferenceRequest{
+		AIID:      k.KindroidID,
+		MessageID: messageID,
+	}
+	jsonData, err := json.Marshal(requestBody)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+k.APIKey)
+
+	resp, err := k.Client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP error: %s", resp.Status)
+	}
+
+	// The HAR shows a simple "OK" response, no complex parsing needed.
 	return nil
 }
