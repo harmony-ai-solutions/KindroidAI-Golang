@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 
 	"cloud.google.com/go/firestore"
@@ -39,7 +38,8 @@ type KindroidAI struct {
 	KindroidID string
 	BaseURL    string
 	Client     *http.Client
-	UserID     string // Added to store the UserID extracted from the JWT
+	UserID     string
+	JWTAuth    bool
 }
 
 // NewKindroidAI initializes a new KindroidAI client.
@@ -52,21 +52,25 @@ func NewKindroidAI(apiKey, kindroidID string) *KindroidAI {
 		BaseURL:    "https://api.kindroid.ai/v1",
 		Client:     &http.Client{},
 	}
-
-	// Attempt to extract UserID from the APIKey (JWT)
-	userID, err := k.extractUserIDFromJWT()
-	if err != nil {
-		// If JWT parsing fails, assume it's a regular API key and look for env var
-		fmt.Printf("Info: Could not extract UserID from APIKey (not a JWT?). Falling back to KINDROID_USER_ID env var.\n")
-		userID = os.Getenv("KINDROID_USER_ID")
-	}
-
-	if userID == "" {
-		fmt.Printf("Warning: UserID is not set. Chat history features will not work.\n")
-	}
-
-	k.UserID = userID
 	return k
+}
+
+func (k *KindroidAI) SetupUserAndPermissions() error {
+	// Try to extract UserID from the APIKey (JWT)
+	userID, errJWT := k.extractUserIDFromJWT()
+	if errJWT != nil {
+		// if JWT extraction fails, try to extract from subscription info
+		sub, errSub := k.CheckUserSubscription()
+		if errSub != nil {
+			return fmt.Errorf("failed to setup user. Failed to fetch subscription: %w Failed to parse API Key as JWT: %w ", errSub, errJWT)
+		}
+		userID = sub.UID
+	} else {
+		// Only if JWT Auth is give, Chat history and Audio Inference can be performed
+		k.JWTAuth = true
+	}
+	k.UserID = userID
+	return nil
 }
 
 // extractUserIDFromJWT parses the JWT (APIKey) to get the user ID.
@@ -217,7 +221,53 @@ func (k *KindroidAI) CheckUserSubscription() (*SubscriptionInfo, error) {
 // WARNING: This method uses an undocumented API endpoint discovered through
 // network analysis. It may change or be removed without notice.
 // Use at your own risk in production environments.
-func (k *KindroidAI) AudioInference(messageID string) error {
+func (k *KindroidAI) AudioInference(messageID string) ([]byte, error) {
+	if !k.JWTAuth {
+		return nil, fmt.Errorf("audio inference is currently only available if a JWT Bearer token is provided as the API Key")
+	}
+
+	// Fetch the message for given ID and check for Audio URL
+	message, errMessage := k.GetMessageById(context.Background(), k.KindroidID, messageID)
+	if errMessage != nil {
+		return nil, fmt.Errorf("failed to fetch message for ID %s: %w", messageID, errMessage)
+	}
+
+	// If no Audio URL is present, invoke inference endpoint and fetch the message a second time
+	if message.Audio == "" {
+		if errInference := k.invokeBackendAudioInference(messageID); errInference != nil {
+			return nil, fmt.Errorf("failed to invoke backend audio inference API: %w", errInference)
+		}
+		// Fetch the message a second time
+		message, errMessage = k.GetMessageById(context.Background(), k.KindroidID, messageID)
+		if errMessage != nil {
+			return nil, fmt.Errorf("failed to fetch message for ID %s after invoking audio inference: %w", messageID, errMessage)
+		}
+		if message.Audio == "" {
+			return nil, fmt.Errorf("audio inference failed to produce an audio URL for message ID %s", messageID)
+		}
+	}
+
+	// Fetch the audio
+	resp, err := http.Get(message.Audio)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	// Decode the audio
+	audio, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	// Returned audio is audio/mpeg
+	return audio, nil
+}
+
+func (k *KindroidAI) invokeBackendAudioInference(messageID string) error {
+	if !k.JWTAuth {
+		return fmt.Errorf("audio inference is currently only available if a JWT Bearer token is provided as the API Key")
+	}
+
 	url := fmt.Sprintf("%s/audio-inference", k.BaseURL)
 	requestBody := AudioInferenceRequest{
 		AIID:      k.KindroidID,
@@ -244,8 +294,6 @@ func (k *KindroidAI) AudioInference(messageID string) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("HTTP error: %s", resp.Status)
 	}
-
-	// The HAR shows a simple "OK" response, no complex parsing needed.
 	return nil
 }
 
@@ -267,10 +315,81 @@ func (k *KindroidAI) decryptMessage(encryptedMsg string) (string, error) {
 	return string(decrypted), nil
 }
 
-// GetChatHistory retrieves the most recent chat messages for a given AI from Firestore.
-func (k *KindroidAI) GetChatHistory(ctx context.Context, aiID string, limit int) ([]ChatMessage, error) {
+func (k *KindroidAI) GetMessageById(ctx context.Context, aiID string, messageID string) (*ChatMessage, error) {
+	if !k.JWTAuth {
+		return nil, fmt.Errorf("fetching messages is currently only available if a JWT Bearer Token is provided as the API Key")
+	}
 	if k.UserID == "" {
-		return nil, fmt.Errorf("user ID not available; ensure APIKey is a valid JWT")
+		return nil, fmt.Errorf("user ID not available; ensure APIKey is a valid JWT Bearer Token")
+	}
+
+	// Use the APIKey as the bearer token for Firestore authentication.
+	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: k.APIKey})
+	opts := []option.ClientOption{option.WithTokenSource(ts)}
+
+	// Initialize the Firestore client.
+	// Note: The project ID is hardcoded based on HAR file analysis.
+	client, err := firestore.NewClientWithDatabase(ctx, "kindroid-ai", "(default)", opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create firestore client: %w", err)
+	}
+	defer client.Close()
+
+	// Construct the path to the "ChatMessages" collection.
+	parentPath := fmt.Sprintf("Users/%s/AIs/%s", k.UserID, aiID)
+
+	// Build the query.
+	query := client.Collection(parentPath + "/ChatMessages").Doc(messageID)
+
+	// Execute the query.
+	doc, err := query.Get(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve document: %w", err)
+	}
+
+	// Parse and decrypt the message
+	return k.messageFromFirebaseDocument(doc)
+}
+
+func (k *KindroidAI) messageFromFirebaseDocument(doc *firestore.DocumentSnapshot) (*ChatMessage, error) {
+	msg := &ChatMessage{}
+	if errDecode := doc.DataTo(&msg); errDecode != nil {
+		return nil, errDecode
+	}
+	msg.ID = doc.Ref.ID
+
+	// Decrypt the message content if it's encrypted.
+	decryptedText, errMessage := k.decryptMessage(msg.Message)
+	if errMessage != nil {
+		fmt.Printf("Warning: Failed to decrypt message for doc %s: %v\n", doc.Ref.ID, errMessage)
+		msg.Message = "[DECRYPTION FAILED]"
+	} else {
+		msg.Message = decryptedText
+	}
+
+	// Decrypt the audio content if it's present and encrypted.
+	if msg.Audio != "" {
+		decryptedAudioInfo, errAudio := k.decryptMessage(msg.Audio)
+		if errAudio != nil {
+			fmt.Printf("Warning: Failed to decrypt message for doc %s: %v\n", doc.Ref.ID, errAudio)
+			msg.Audio = "[DECRYPTION FAILED]"
+		} else {
+			msg.Audio = decryptedAudioInfo
+		}
+	}
+
+	// TODO: LTM Content
+
+	return msg, nil
+}
+
+// GetChatHistory retrieves the most recent chat messages for a given AI from Firestore.
+func (k *KindroidAI) GetChatHistory(ctx context.Context, aiID string, limit int) ([]*ChatMessage, error) {
+	if !k.JWTAuth {
+		return nil, fmt.Errorf("fetching message history is currently only available if a JWT Bearer Token is provided as the API Key")
+	}
+	if k.UserID == "" {
+		return nil, fmt.Errorf("user ID not available; ensure APIKey is a valid JWT Bearer Token")
 	}
 
 	// Use the APIKey as the bearer token for Firestore authentication.
@@ -300,24 +419,13 @@ func (k *KindroidAI) GetChatHistory(ctx context.Context, aiID string, limit int)
 	}
 
 	// Parse and decrypt the documents.
-	var messages []ChatMessage
+	var messages []*ChatMessage
 	for _, doc := range docs {
-		var msg ChatMessage
-		if err := doc.DataTo(&msg); err != nil {
-			fmt.Printf("Warning: Failed to parse chat message document %s: %v\n", doc.Ref.ID, err)
+		msg, errDecode := k.messageFromFirebaseDocument(doc)
+		if errDecode != nil {
+			fmt.Printf("Warning: Failed to parse chat message document %s: %v\n", doc.Ref.ID, errDecode)
 			continue
 		}
-		msg.ID = doc.Ref.ID
-
-		// Decrypt the message content if it's encrypted.
-		decryptedText, err := k.decryptMessage(msg.Message)
-		if err != nil {
-			fmt.Printf("Warning: Failed to decrypt message for doc %s: %v\n", doc.Ref.ID, err)
-			msg.Message = "[DECRYPTION FAILED]"
-		} else {
-			msg.Message = decryptedText
-		}
-
 		messages = append(messages, msg)
 	}
 

@@ -59,6 +59,7 @@ type ChatMessage struct {
 	Message   string `firestore:"message"`
 	Sender    string `firestore:"sender"`
 	Timestamp int64  `firestore:"timestamp"` // Firestore stores this as a Unix timestamp (integer)
+	Audio     string `firestore:"audio"`     // This is encoded and contains the details to fetch the audio data
 }
 
 // GetTime returns the timestamp as a time.Time object.

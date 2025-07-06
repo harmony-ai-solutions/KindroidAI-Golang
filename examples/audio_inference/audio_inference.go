@@ -30,13 +30,31 @@ func main() {
 	fmt.Printf("Authenticated as UserID: %s\n", kindroidClient.UserID)
 
 	ctx := context.Background()
-	messages, err := kindroidClient.GetChatHistory(ctx, aiID, 10) // Get last 10 messages
+	messages, err := kindroidClient.GetChatHistory(ctx, aiID, 10) // Get last messages
 	if err != nil {
 		log.Fatalf("Failed to get chat history: %v", err)
 	}
 
-	fmt.Println("Chat History:")
+	// Fetch first AI message we find
+	var kindroidMessageForAudio *client.ChatMessage
 	for _, msg := range messages {
+		if msg.Sender != "ai" {
+			continue
+		}
+		fmt.Println("Found AI message for Inference Test")
 		fmt.Printf("[%s] %s: %s\n", msg.GetTime().Format("2006-01-02 15:04:05"), msg.Sender, msg.Message)
+		kindroidMessageForAudio = msg
+		break
 	}
+
+	if kindroidMessageForAudio == nil {
+		log.Fatal("No AI message found for Inference Test")
+	}
+
+	audioBytes, errGenAudio := kindroidClient.AudioInference(kindroidMessageForAudio.ID)
+	if errGenAudio != nil {
+		log.Fatalf("Failed to generate audio: %v", errGenAudio)
+	}
+	fmt.Println(fmt.Sprintf("Generated Audio for Inference Test. Audio file size (bytes): %d", len(audioBytes)))
+
 }
